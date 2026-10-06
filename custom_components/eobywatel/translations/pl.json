@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Połącz z e-Obywatel",
+        "data": {
+          "url": "Adres strony url",
+          "username": "Użytkownik",
+          "password": "Hasło"
+        }
+      },
+      "reconfigure": {
+        "title": "Ponowna konfiguracja e-Obywatel",
+        "data": {
+          "url": "Adres strony url",
+          "username": "Użytkownik",
+          "password": "Hasło"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie udało się nawiązać połączenia",
+      "invalid_auth": "Nieprawidłowe dane logowania"
+    },
+    "abort": {
+      "already_configured": "Konto jest już skonfigurowane",
+      "reconfigure_successful": "Ponowna konfiguracja zakończona pomyślnie"
+    }
+  }
+}

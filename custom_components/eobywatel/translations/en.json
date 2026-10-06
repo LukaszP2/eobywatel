@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to e-Obywatel",
+        "data": {
+          "url": "Website URL",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure e-Obywatel",
+        "data": {
+          "url": "Website URL",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication"
+    },
+    "abort": {
+      "already_configured": "Account is already configured",
+      "reconfigure_successful": "Reconfiguration was successful"
+    }
+  }
+}

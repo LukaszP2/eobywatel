@@ -10,6 +10,6 @@ manifest.json
 sensor.py
 services.yaml
 switch.py
-translations/
+/translations
 __pycache__/
-brand/
+/brand
