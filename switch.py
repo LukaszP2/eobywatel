@@ -9,7 +9,7 @@ from .sensor import EobywatelCoordinator
 
 ICONS = {
     "2": "mdi:credit-card-check-outline",
-    "3": "mdi:gauge",
+    "3": "mdi:water",
     "4": "mdi:calendar-clock",
     "6": "mdi:alert-outline",
 }

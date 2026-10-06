@@ -626,7 +626,7 @@ class MeterSensor(CoordinatorEntity[EobywatelCoordinator], SensorEntity):
     _attr_device_class = "water"
     _attr_state_class = "total_increasing"
     _attr_suggested_display_precision = 3
-    _attr_icon = "mdi:gauge"
+    _attr_icon = "mdi:water"
 
     def __init__(self, coordinator, meter, parent_device_id: str):
         super().__init__(coordinator)
@@ -849,7 +849,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities: list[SensorEntity] = [
         SimpleSensor(coordinator, "Status", f"{DOMAIN}_status", "mdi:account-check", lambda x: x.get("status", "offline")),
         SimpleSensor(coordinator, "Punkty poboru", f"{DOMAIN}_points", "mdi:map-marker-multiple", lambda x: len(x.get("points", []))),
-        SimpleSensor(coordinator, "Wodomierze", f"{DOMAIN}_meters", "mdi:gauge", lambda x: len(x.get("meters", []))),
+        SimpleSensor(coordinator, "Wodomierze", f"{DOMAIN}_meters", "mdi:water", lambda x: len(x.get("meters", []))),
         SimpleSensor(coordinator, "Wiadomości", f"{DOMAIN}_messages", "mdi:email-multiple", lambda x: len(x.get("notifications", []))),
         SimpleSensor(
             coordinator,
