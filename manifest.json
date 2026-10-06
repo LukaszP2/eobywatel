@@ -1,0 +1,10 @@
+{
+  "domain": "eobywatel",
+  "name": "e-Obywatel",
+  "version": "0.6.0",
+  "documentation": "https://github.com/LukaszP2/eobywatel",
+  "requirements": [],
+  "codeowners": [],
+  "config_flow": true,
+  "iot_class": "cloud_polling"
+}
