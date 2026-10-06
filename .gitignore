@@ -12,3 +12,4 @@ services.yaml
 switch.py
 translations/
 __pycache__/
+brand/
