@@ -2,3 +2,13 @@ __pycache__/
 *.pyc
 .DS_Store
 *.zip
+__init__.py
+button.py
+config_flow.py
+const.py
+manifest.json
+sensor.py
+services.yaml
+switch.py
+translations/
+__pycache__/
