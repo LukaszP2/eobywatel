@@ -21,7 +21,7 @@ class EobywatelFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[c
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_URL, default="https://ebok.zgkczernica.pl"): str,
+                    vol.Required(CONF_URL): str,
                     vol.Required(CONF_USERNAME): str,
                     vol.Required(CONF_PASSWORD): str,
                 }
