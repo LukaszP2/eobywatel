@@ -691,13 +691,15 @@ class MeterDateSensor(CoordinatorEntity[EobywatelCoordinator], SensorEntity):
         if not meter:
             return None
         date_str = meter.get(self.date_type)
-        if date_str and len(date_str) == 10 and date_str[2] == "." and date_str[5] == ".":
-            # Convert DD.MM.YYYY to YYYY-MM-DD
-            from datetime import date
-            try:
-                return date(int(date_str[6:10]), int(date_str[3:5]), int(date_str[0:2]))
-            except ValueError:
-                pass
+        if date_str and len(date_str) == 10:
+            date_str = date_str.replace("-", ".")
+            if date_str[2] == "." and date_str[5] == ".":
+                # Convert DD.MM.YYYY to YYYY-MM-DD
+                from datetime import date
+                try:
+                    return date(int(date_str[6:10]), int(date_str[3:5]), int(date_str[0:2]))
+                except ValueError:
+                    pass
         return None
 
 
@@ -971,7 +973,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
         def parse_date(d_str):
             try:
-                parts = d_str.split(".")
+                parts = d_str.replace("-", ".").split(".")
                 return int(parts[2]), int(parts[1]), int(parts[0])
             except (ValueError, IndexError, AttributeError):
                 return (1970, 1, 1)
