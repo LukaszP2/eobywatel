@@ -971,6 +971,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             unit_of_measurement="m³",
         )
 
+        try:
+            from homeassistant.components.recorder.models import StatisticMeanType
+            metadata["mean_type"] = StatisticMeanType.NONE
+        except ImportError:
+            pass
+
         def parse_date(d_str):
             try:
                 parts = d_str.replace("-", ".").split(".")
