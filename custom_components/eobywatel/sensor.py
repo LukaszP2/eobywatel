@@ -970,6 +970,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             statistic_id=statistic_id,
             unit_of_measurement="m³",
         )
+        metadata["unit_class"] = "volume"
 
         try:
             from homeassistant.components.recorder.models import StatisticMeanType
