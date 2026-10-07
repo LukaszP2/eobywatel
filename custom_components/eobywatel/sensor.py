@@ -211,10 +211,6 @@ def parse_invoices(page: str, base: str) -> dict:
                         "data_wystawienia": data_wystawienia,
                         "termin_platnosci": termin_platnosci,
                         "kwota": kwota,
-                        # Dodajemy stare klucze dla kompatybilności z UI (jeśli integracja ich używała)
-                        "text": f"Faktura {nr_faktury} ({status})",
-                        "date": termin_platnosci,
-                        "amount": kwota,
                     }
                     
                     if len(cells) >= 6:
@@ -299,7 +295,7 @@ class EobywatelCoordinator(DataUpdateCoordinator[dict]):
                 if response.url.path.rstrip("/") == "/login" or "Strona logowania" in home:
                     raise UpdateFailed("Logowanie nieudane")
             return session, base
-        except Exception:
+        except (ValueError, IndexError, AttributeError):
             await session.close()
             raise
 
@@ -627,7 +623,7 @@ class MeterSensor(CoordinatorEntity[EobywatelCoordinator], SensorEntity):
         self.meter_id = meter["meter_id"]
         
         self._attr_unique_id = f"{DOMAIN}_meter_{self.meter_id}_reading"
-        self._attr_name = "Odczyt"
+        self._attr_name = "Woda zimna"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"meter_{self.meter_id}")},
             "name": f"Wodomierz {self.meter_id}",
@@ -764,35 +760,24 @@ class MeterLastSubmittedDateSensor(CoordinatorEntity[EobywatelCoordinator], Sens
             return None
 
 
-class NearestMessageDateSensor(EobywatelBaseEntity):
-    _attr_icon = "mdi:calendar-alert"
 
-    def __init__(self, coordinator):
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_nearest_message_date"
-        self._attr_name = "Najbliższy termin z wiadomości"
-
-    @property
-    def native_value(self):
-        messages = (self.coordinator.data or {}).get("notifications", [])
-        dates = []
-        for msg in messages:
-            for match in re.findall(r"\b(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])\.(20\d{2})\b", msg.get("body", "")):
-                try:
-                    from datetime import date
-                    d = date(int(match[2]), int(match[1]), int(match[0]))
-                    dates.append((d, msg.get("title")))
-                except ValueError:
-                    pass
-        if not dates:
-            return None
-        return min(dates)[0].isoformat()
-
-    @property
-    def extra_state_attributes(self):
-        messages = (self.coordinator.data or {}).get("notifications", [])
-        return {"source_messages": [m.get("title") for m in messages]}
-
+def get_invoices_to_pay_attributes(items: list[dict]) -> dict:
+    to_pay = [i for i in items if "zapłaty" in str(i.get("status", "")).lower()]
+    total_amount = 0.0
+    mapped = []
+    for i in to_pay:
+        amount = parse_number(i.get("kwota")) or 0.0
+        total_amount += amount
+        mapped.append({
+            "nr_faktury": i.get("nr_faktury"),
+            "termin_platnosci": i.get("termin_platnosci"),
+            "kwota": amount
+        })
+    return {
+        "count": len(to_pay),
+        "total_amount": round(total_amount, 2),
+        "invoices": mapped
+    }
 
 class LatestMessageSensor(EobywatelBaseEntity):
     _attr_icon = "mdi:email-outline"
@@ -871,7 +856,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 "items": x.get("invoices", {}).get("items", [])[:10],
             },
         ),
-        NearestMessageDateSensor(coordinator),
+        SimpleSensor(
+            coordinator,
+            "Faktury do zapłaty",
+            f"{DOMAIN}_faktury_do_zaplaty",
+            "mdi:receipt-clock",
+            lambda x: len([i for i in x.get("invoices", {}).get("items", []) if "zapłaty" in str(i.get("status", "")).lower()]),
+            lambda x: get_invoices_to_pay_attributes(x.get("invoices", {}).get("items", []))
+        ),
         LatestMessageSensor(coordinator),
         SimpleSensor(
             coordinator,
@@ -913,3 +905,84 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         entities.append(MeterLastSubmittedDateSensor(coordinator, meter, parent_id))
 
     async_add_entities(entities)
+
+    async def import_water_history(call=None):
+        import logging
+        _LOGGER = logging.getLogger(__name__)
+        import homeassistant.util.dt as dt_util
+        try:
+            from homeassistant.components.recorder.models import (
+                StatisticData,
+                StatisticMetaData,
+            )
+            from homeassistant.components.recorder.statistics import (
+                async_import_statistics,
+            )
+        except ImportError:
+            _LOGGER.error("Recorder nie jest dostępny, import historii przerwany.")
+            return
+
+        meter_sensors = [e for e in entities if type(e).__name__ == "MeterSensor"]
+        for meter_sensor in meter_sensors:
+            meter_data = meter_sensor.meter
+            if not meter_data:
+                continue
+            history = meter_data.get("history", [])
+            if not history:
+                continue
+
+            statistic_id = meter_sensor.entity_id
+            if not statistic_id:
+                # Odtworzenie przewidywanego entity_id po dodaniu do HA (dla wywołania od razu)
+                statistic_id = f"sensor.{DOMAIN}_meter_{meter_sensor.meter_id}_reading"
+
+            metadata = StatisticMetaData(
+                has_mean=False,
+                has_sum=True,
+                name=meter_sensor.name,
+                source="recorder",
+                statistic_id=statistic_id,
+                unit_of_measurement="m³",
+            )
+
+            stats = []
+            def parse_date(d_str):
+                try:
+                    parts = d_str.split(".")
+                    return int(parts[2]), int(parts[1]), int(parts[0])
+                except (ValueError, IndexError, AttributeError):
+                    return (1970, 1, 1)
+
+            sorted_history = sorted(history, key=lambda x: parse_date(x.get("date", "")))
+
+            for item in sorted_history:
+                try:
+                    year, month, day = parse_date(item["date"])
+                    if year == 1970:
+                        continue
+                    # Używamy 12:00 w południe dla danego dnia
+                    start_dt = dt_util.now().replace(year=year, month=month, day=day, hour=12, minute=0, second=0, microsecond=0)
+                    
+                    reading = float(item["reading"])
+                    stats.append(
+                        StatisticData(
+                            start=start_dt,
+                            state=reading,
+                            sum=reading,
+                        )
+                    )
+                except (ValueError, TypeError) as e:
+                    _LOGGER.warning(f"Błąd parsowania historii dla {item}: {e}")
+                    continue
+
+            if stats:
+                async_import_statistics(hass, metadata, stats)
+                _LOGGER.info(f"Zaimportowano {len(stats)} wpisów historii dla {statistic_id}")
+
+    hass.services.async_register(DOMAIN, "import_water_history", import_water_history)
+
+    if not entry.data.get("history_imported"):
+        hass.async_create_task(import_water_history())
+        new_data = dict(entry.data)
+        new_data["history_imported"] = True
+        hass.config_entries.async_update_entry(entry, data=new_data)
