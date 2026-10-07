@@ -196,14 +196,14 @@ def parse_invoices(page: str, base: str) -> dict:
             for row in tbody.find_all("tr"):
                 cells = row.find_all("td")
                 
-                # Oczekujemy co najmniej 6 kolumn:
-                # 0: checkbox, 1: Nr faktury, 2: Status, 3: Data wystawienia, 4: Termin płatności, 5: Kwota
-                if len(cells) >= 6:
-                    nr_faktury = clean(cells[1].get_text(strip=True))
-                    status = clean(cells[2].get_text(strip=True))
-                    data_wystawienia = clean(cells[3].get_text(strip=True))
-                    termin_platnosci = clean(cells[4].get_text(strip=True))
-                    kwota = clean(cells[5].get_text(strip=True))
+                # Kolumny w rzeczywistości (wg błędu przesunięcia):
+                # 0: Nr faktury, 1: Status, 2: Data wystawienia, 3: Termin płatności, 4: Kwota, (5: Pokaż szczegóły)
+                if len(cells) >= 5:
+                    nr_faktury = clean(cells[0].get_text(strip=True))
+                    status = clean(cells[1].get_text(strip=True))
+                    data_wystawienia = clean(cells[2].get_text(strip=True))
+                    termin_platnosci = clean(cells[3].get_text(strip=True))
+                    kwota = clean(cells[4].get_text(strip=True))
                     
                     item = {
                         "nr_faktury": nr_faktury,
@@ -217,8 +217,8 @@ def parse_invoices(page: str, base: str) -> dict:
                         "amount": kwota,
                     }
                     
-                    if len(cells) >= 7:
-                        link = cells[6].find("a", href=True)
+                    if len(cells) >= 6:
+                        link = cells[5].find("a", href=True)
                         if link:
                             item["url"] = urljoin(base, link.get("href"))
                             
