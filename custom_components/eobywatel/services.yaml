@@ -22,3 +22,29 @@ submit_meter_reading:
           min: 0
           step: 0.001
           mode: box
+import_water_history:
+  name: Importuj historię wodomierza
+  description: Pobiera historyczne odczyty z e-Obywatela i zapisuje je w bazie długoterminowych statystyk HA.
+  fields:
+    meter_id:
+      name: Wodomierz
+      description: Wybierz encję wodomierza.
+      required: true
+      selector:
+        entity:
+          filter:
+            - integration: eobywatel
+              domain: sensor
+              device_class: water
+    from_date:
+      name: Od daty
+      description: Opcjonalnie. Importuj tylko odczyty nowsze lub równe tej dacie (format YYYY-MM-DD).
+      required: false
+      selector:
+        date:
+    to_date:
+      name: Do daty
+      description: Opcjonalnie. Importuj tylko odczyty starsze lub równe tej dacie (format YYYY-MM-DD).
+      required: false
+      selector:
+        date:

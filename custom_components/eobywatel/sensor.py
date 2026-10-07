@@ -910,6 +910,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         import logging
         _LOGGER = logging.getLogger(__name__)
         import homeassistant.util.dt as dt_util
+        from homeassistant.exceptions import HomeAssistantError
+        
         try:
             from homeassistant.components.recorder.models import (
                 StatisticData,
@@ -919,65 +921,126 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 async_import_statistics,
             )
         except ImportError:
-            _LOGGER.error("Recorder nie jest dostępny, import historii przerwany.")
-            return
+            raise HomeAssistantError("Recorder nie jest dostępny, import historii przerwany.")
+
+        target_entity_id = None
+        from_date_str = None
+        to_date_str = None
+
+        if call:
+            target_entity_id = call.data.get("meter_id")
+            from_date_str = call.data.get("from_date")
+            to_date_str = call.data.get("to_date")
 
         meter_sensors = [e for e in entities if type(e).__name__ == "MeterSensor"]
-        for meter_sensor in meter_sensors:
-            meter_data = meter_sensor.meter
-            if not meter_data:
-                continue
-            history = meter_data.get("history", [])
-            if not history:
-                continue
+        
+        if not target_entity_id:
+            if len(meter_sensors) > 1:
+                raise HomeAssistantError("Masz więcej niż jeden wodomierz. Wybierz konkretny wodomierz (meter_id) do importu.")
+            elif len(meter_sensors) == 1:
+                target_entity_id = meter_sensors[0].entity_id
+            else:
+                raise HomeAssistantError("Nie znaleziono żadnego wodomierza.")
 
-            statistic_id = meter_sensor.entity_id
-            if not statistic_id:
-                # Odtworzenie przewidywanego entity_id po dodaniu do HA (dla wywołania od razu)
-                statistic_id = f"sensor.{DOMAIN}_meter_{meter_sensor.meter_id}_reading"
+        # Znajdź właściwy sensor
+        target_sensor = next((m for m in meter_sensors if m.entity_id == target_entity_id or (not m.entity_id and f"sensor.{DOMAIN}_meter_{m.meter_id}_reading" == target_entity_id)), None)
+        
+        if not target_sensor:
+            raise HomeAssistantError(f"Nie znaleziono wodomierza dla ID {target_entity_id}")
 
-            metadata = StatisticMetaData(
-                has_mean=False,
-                has_sum=True,
-                name=meter_sensor.name,
-                source="recorder",
-                statistic_id=statistic_id,
-                unit_of_measurement="m³",
-            )
+        meter_data = target_sensor.meter
+        if not meter_data:
+            raise HomeAssistantError("Wodomierz nie posiada aktualnych danych z API.")
+            
+        history = meter_data.get("history", [])
+        if not history:
+            raise HomeAssistantError("Brak danych historycznych dla tego wodomierza w e-Obywatel.")
 
-            stats = []
-            def parse_date(d_str):
-                try:
-                    parts = d_str.split(".")
-                    return int(parts[2]), int(parts[1]), int(parts[0])
-                except (ValueError, IndexError, AttributeError):
-                    return (1970, 1, 1)
+        statistic_id = target_sensor.entity_id
+        if not statistic_id:
+            statistic_id = f"sensor.{DOMAIN}_meter_{target_sensor.meter_id}_reading"
 
-            sorted_history = sorted(history, key=lambda x: parse_date(x.get("date", "")))
+        metadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=target_sensor.name,
+            source="recorder",
+            statistic_id=statistic_id,
+            unit_of_measurement="m³",
+        )
 
-            for item in sorted_history:
-                try:
-                    year, month, day = parse_date(item["date"])
-                    if year == 1970:
-                        continue
-                    # Używamy 12:00 w południe dla danego dnia
-                    start_dt = dt_util.now().replace(year=year, month=month, day=day, hour=12, minute=0, second=0, microsecond=0)
-                    
-                    reading = float(item["reading"])
-                    stats.append(
-                        StatisticData(
-                            start=start_dt,
-                            state=reading,
-                            sum=reading,
-                        )
-                    )
-                except (ValueError, TypeError) as e:
-                    _LOGGER.warning(f"Błąd parsowania historii dla {item}: {e}")
+        def parse_date(d_str):
+            try:
+                parts = d_str.split(".")
+                return int(parts[2]), int(parts[1]), int(parts[0])
+            except (ValueError, IndexError, AttributeError):
+                return (1970, 1, 1)
+
+        sorted_history = sorted(history, key=lambda x: parse_date(x.get("date", "")))
+
+        # Filtrowanie dat
+        from datetime import datetime
+        if from_date_str:
+            try:
+                fd = datetime.strptime(from_date_str, "%Y-%m-%d").date()
+                sorted_history = [x for x in sorted_history if datetime(*parse_date(x.get("date", ""))).date() >= fd]
+            except Exception:
+                pass
+        if to_date_str:
+            try:
+                td = datetime.strptime(to_date_str, "%Y-%m-%d").date()
+                sorted_history = [x for x in sorted_history if datetime(*parse_date(x.get("date", ""))).date() <= td]
+            except Exception:
+                pass
+
+        if not sorted_history:
+            raise HomeAssistantError("Brak danych historycznych w wybranym przedziale czasowym.")
+
+        stats = []
+        accumulated_sum = 0.0
+        try:
+            last_reading = float(sorted_history[0]["reading"])
+        except Exception:
+            last_reading = 0.0
+
+        for item in sorted_history:
+            try:
+                year, month, day = parse_date(item["date"])
+                if year == 1970:
                     continue
+                start_dt = dt_util.now().replace(year=year, month=month, day=day, hour=12, minute=0, second=0, microsecond=0)
+                
+                reading = float(item["reading"])
+                delta = reading - last_reading
+                if delta < 0:
+                    delta = 0.0
+                accumulated_sum += delta
+                last_reading = reading
 
-            if stats:
-                async_import_statistics(hass, metadata, stats)
-                _LOGGER.info(f"Zaimportowano {len(stats)} wpisów historii dla {statistic_id}")
+                stats.append(
+                    StatisticData(
+                        start=start_dt,
+                        state=reading,
+                        sum=accumulated_sum,
+                    )
+                )
+            except (ValueError, TypeError):
+                continue
+
+        if stats:
+            async_import_statistics(hass, metadata, stats)
+            
+            # Formatted notification/result if called by user
+            msg = f"Zaimportowano historię wodomierza:\n{target_sensor.name} {target_sensor.meter_id}\n\nOdczyty: {len(stats)}\nZakres: {sorted_history[0]['date']} – {sorted_history[-1]['date']}"
+            _LOGGER.info(msg)
+            
+            if call:
+                try:
+                    hass.components.persistent_notification.async_create(
+                        msg, title="Import Historii Wodomierza", notification_id=f"eobywatel_history_{target_sensor.meter_id}"
+                    )
+                except Exception:
+                    pass
 
     hass.services.async_register(DOMAIN, "import_water_history", import_water_history)
 
