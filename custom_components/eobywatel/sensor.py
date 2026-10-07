@@ -176,65 +176,59 @@ def parse_notifications(payload: dict) -> list[dict]:
 
 
 def parse_invoices(page: str, base: str) -> dict:
-    """Best-effort parser for the invoice page.
-
-    The portal currently returns a broken/unknown invoice page. This parser is
-    deliberately conservative: it only creates invoice items when a row looks
-    like an invoice and keeps the original URL for later refinement against a
-    working portal capture.
-    """
+    """Parsuje listę faktur z odpowiedniej tabeli na stronie /kkonline/."""
     soup = BeautifulSoup(page, "html.parser")
     items: list[dict] = []
 
-    invoice_words = re.compile(r"(faktur|rachunk|nota|rozlicz|invoice)", re.IGNORECASE)
-    date_re = re.compile(r"\b\d{2}[.-]\d{2}[.-]\d{4}\b")
-    amount_re = re.compile(
-        r"[-+]?\d[\d\s.,]*\s*(?:zł|PLN)\b", re.IGNORECASE
-    )
-
-    for row in soup.find_all("tr"):
-        cells = [clean(cell.get_text(" ", strip=True)) for cell in row.find_all(["th", "td"])]
-        if not cells:
-            continue
-        row_text = " | ".join(cells)
-        links = []
-        for link in row.find_all("a", href=True):
-            href = urljoin(base, link.get("href", ""))
-            label = clean(link.get_text(" ", strip=True))
-            if invoice_words.search(row_text) or invoice_words.search(label) or re.search(
-                r"\.(?:pdf|xml)(?:\?|$)", href, re.IGNORECASE
-            ):
-                links.append(href)
-
-        if not (invoice_words.search(row_text) or links):
-            continue
-
-        date_match = date_re.search(row_text)
-        amount_match = amount_re.search(row_text)
-        item = {
-            "text": row_text[:300],
-            "date": date_match.group(0) if date_match else None,
-            "amount": amount_match.group(0) if amount_match else None,
-        }
-        if links:
-            item["url"] = links[0]
-        items.append(item)
-
-    # De-duplicate identical rows/URLs while keeping the result compact.
-    unique: list[dict] = []
-    seen: set[str] = set()
-    for item in items:
-        key = f"{item.get('text')}|{item.get('url')}"
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(item)
+    # Szukamy tabeli faktur
+    tables = soup.find_all("table", class_=re.compile(r"sortowana-tabela"))
+    target_table = None
+    
+    for table in tables:
+        thead = table.find("thead")
+        if thead and "Nr faktury" in thead.get_text():
+            target_table = table
+            break
+            
+    if target_table:
+        tbody = target_table.find("tbody")
+        if tbody:
+            for row in tbody.find_all("tr"):
+                cells = row.find_all("td")
+                
+                # Oczekujemy co najmniej 6 kolumn:
+                # 0: checkbox, 1: Nr faktury, 2: Status, 3: Data wystawienia, 4: Termin płatności, 5: Kwota
+                if len(cells) >= 6:
+                    nr_faktury = clean(cells[1].get_text(strip=True))
+                    status = clean(cells[2].get_text(strip=True))
+                    data_wystawienia = clean(cells[3].get_text(strip=True))
+                    termin_platnosci = clean(cells[4].get_text(strip=True))
+                    kwota = clean(cells[5].get_text(strip=True))
+                    
+                    item = {
+                        "nr_faktury": nr_faktury,
+                        "status": status,
+                        "data_wystawienia": data_wystawienia,
+                        "termin_platnosci": termin_platnosci,
+                        "kwota": kwota,
+                        # Dodajemy stare klucze dla kompatybilności z UI (jeśli integracja ich używała)
+                        "text": f"Faktura {nr_faktury} ({status})",
+                        "date": termin_platnosci,
+                        "amount": kwota,
+                    }
+                    
+                    if len(cells) >= 7:
+                        link = cells[6].find("a", href=True)
+                        if link:
+                            item["url"] = urljoin(base, link.get("href"))
+                            
+                    items.append(item)
 
     return {
         "status": "available",
-        "count": len(unique),
-        "items": unique[:50],
-        "parser": "best_effort_v1",
+        "count": len(items),
+        "items": items[:50],
+        "parser": "html_table_v2",
     }
 
 
